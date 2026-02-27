@@ -1,0 +1,13 @@
+{
+  "nacento_media_gallery_meta": {
+    "column": {
+      "record_id": true,
+      "s3_etag": true,
+      "updated_at": true
+    },
+    "constraint": {
+      "PRIMARY": true,
+      "NACENTO_MEDIA_META_RECORD_ID_FK": true
+    }
+  }
+}
