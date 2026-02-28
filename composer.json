@@ -4,7 +4,7 @@
   "type": "magento2-module",
   "license": "MIT",
   "authors": [
-    { "name": "Nacento", "email": "xtura.vaina@gmail.com" }
+    { "name": "Nacento", "email": "nacento@nacento.com" }
   ],
   "require": {
     "php": "^8.1 || ^8.2 || ^8.3",
@@ -22,8 +22,8 @@
   },
   "keywords": ["magento2","akeneo","images","s3","r2","connector","pim"],
   "support": {
-    "issues": "https://github.com/xturavaina/nacento-connector/issues",
-    "source": "https://github.com/xturavaina/nacento-connector"
+    "issues": "https://github.com/nacento-conn/nacento-connector/issues",
+    "source": "https://github.com/nacento-conn/nacento-connector"
   },
   "config": { "sort-packages": true }
 }
