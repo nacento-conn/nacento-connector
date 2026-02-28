@@ -137,7 +137,7 @@ class GalleryConsumerTest extends TestCase
         $consumer->process($operation);
     }
 
-    public function testRetriableProcessingFailureIsDroppedWhenStatusRowIsMissing(): void
+    public function testRetriableProcessingFailureStillThrowsWhenStatusRowIsMissing(): void
     {
         $processor = $this->createMock(GalleryProcessor::class);
         $imageEntryFactory = $this->createMock(ImageEntryFactory::class);
@@ -173,9 +173,10 @@ class GalleryConsumerTest extends TestCase
             $statusUpdater
         );
 
-        $consumer->process($operation);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Retriable processing failure with missing operation status row');
 
-        self::assertTrue(true);
+        $consumer->process($operation);
     }
 
     public function testThrowsWhenNonRetriableFailureCannotPersistStatus(): void
@@ -241,6 +242,54 @@ class GalleryConsumerTest extends TestCase
         $operation = $this->createMock(AsyncOperationInterface::class);
         $operation->method('getSerializedData')->willReturn('{"sku":"SKU-1","images":["bad-row"]}');
         $operation->method('getId')->willReturn(42);
+        $operation->method('getBulkUuid')->willReturn('bulk-1');
+
+        $consumer = new GalleryConsumer(
+            $processor,
+            $imageEntryFactory,
+            $normalizer,
+            $failureClassifier,
+            $serializer,
+            $logger,
+            $statusUpdater
+        );
+
+        $consumer->process($operation);
+        self::assertTrue(true);
+    }
+
+    public function testUsesOperationIdAsOperationKeyFallback(): void
+    {
+        $processor = $this->createMock(GalleryProcessor::class);
+        $imageEntryFactory = $this->createMock(ImageEntryFactory::class);
+        $normalizer = $this->createMock(ImagePayloadNormalizer::class);
+        $failureClassifier = $this->createMock(FailureClassifier::class);
+        $serializer = $this->createMock(SerializerInterface::class);
+        $logger = $this->createMock(LoggerInterface::class);
+        $statusUpdater = $this->createMock(OperationStatusUpdater::class);
+
+        $serializer->method('unserialize')->willReturn([
+            'sku' => 'SKU-1',
+            'images' => [],
+        ]);
+        $normalizer->method('normalizeList')->willReturn([]);
+        $processor->expects(self::once())->method('create')->with('SKU-1', [])->willReturn(true);
+
+        $statusUpdater->expects(self::once())
+            ->method('update')
+            ->with(
+                'bulk-1',
+                789123,
+                '789123',
+                \Magento\Framework\Bulk\OperationInterface::STATUS_TYPE_COMPLETE,
+                null,
+                null
+            )
+            ->willReturn(OperationStatusUpdater::RESULT_UPDATED);
+
+        $operation = $this->createMock(AsyncOperationInterface::class);
+        $operation->method('getSerializedData')->willReturn('{"sku":"SKU-1","images":[]}');
+        $operation->method('getId')->willReturn(789123);
         $operation->method('getBulkUuid')->willReturn('bulk-1');
 
         $consumer = new GalleryConsumer(

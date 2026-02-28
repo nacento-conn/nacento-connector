@@ -33,7 +33,10 @@ class GalleryConsumer
         $requestId = null;
         $processingException = null;
         $processingRetriable = false;
-        $operationKey = method_exists($operation, 'getOperationKey') ? (string)($operation->getOperationKey() ?? '') : '';
+        $operationIdentity = (string)($operation->getId() ?? '');
+        $operationKey = method_exists($operation, 'getOperationKey')
+            ? (string)($operation->getOperationKey() ?? '')
+            : trim($operationIdentity);
         $statusUpdateResult = OperationStatusUpdater::RESULT_UPDATED;
 
         $dataJson = (string)($operation->getSerializedData() ?? '');
@@ -99,7 +102,7 @@ class GalleryConsumer
         }
 
         if ($statusUpdateResult === OperationStatusUpdater::RESULT_NOT_FOUND) {
-            $this->logger->error('[NacentoConnector][GalleryConsumer] Operation status row not found; dropping message without retry', [
+            $this->logger->error('[NacentoConnector][GalleryConsumer] Operation status row not found', [
                 'operation_id' => (string)$operation->getId(),
                 'operation_key' => $operationKey,
                 'bulk_uuid' => (string)$operation->getBulkUuid(),
@@ -107,6 +110,18 @@ class GalleryConsumer
                 'had_processing_exception' => $processingException !== null,
                 'processing_retriable' => $processingRetriable,
             ]);
+            if ($processingException !== null && $processingRetriable) {
+                throw new \RuntimeException(
+                    sprintf(
+                        'Retriable processing failure with missing operation status row for bulk="%s" operation_id="%s" operation_key="%s"',
+                        (string)$operation->getBulkUuid(),
+                        (string)$operation->getId(),
+                        $operationKey
+                    ),
+                    0,
+                    $processingException
+                );
+            }
             return;
         }
 

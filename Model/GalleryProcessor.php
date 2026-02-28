@@ -206,20 +206,20 @@ class GalleryProcessor
                 }
 
                 if ($stats['invalid'] > 0) {
-                    $this->logger->warning('[NacentoConnector][GalleryProcessor] Skipping managed role synchronization due to invalid images in payload', [
+                    $this->logger->warning('[NacentoConnector][GalleryProcessor] Payload contains invalid images; synchronizing managed roles from valid entries only', [
                         'sku' => $sku,
                         'invalid' => $stats['invalid'],
                     ]);
-                } else {
-                    $clearRoles = [];
-                    foreach ($this->managedRoleSetProvider->getManagedRoles() as $roleCode) {
-                        $clearRoles[$roleCode] = 'no_selection';
-                    }
+                }
 
-                    $this->productAction->updateAttributes([(int)$product->getId()], $clearRoles, 0);
-                    if (!empty($rolesToUpdate)) {
-                        $this->productAction->updateAttributes([(int)$product->getId()], $rolesToUpdate, 0);
-                    }
+                $clearRoles = [];
+                foreach ($this->managedRoleSetProvider->getManagedRoles() as $roleCode) {
+                    $clearRoles[$roleCode] = 'no_selection';
+                }
+
+                $this->productAction->updateAttributes([(int)$product->getId()], $clearRoles, 0);
+                if (!empty($rolesToUpdate)) {
+                    $this->productAction->updateAttributes([(int)$product->getId()], $rolesToUpdate, 0);
                 }
 
                 $this->galleryResourceModel->commit();

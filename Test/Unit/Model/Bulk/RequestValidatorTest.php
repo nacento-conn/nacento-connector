@@ -58,4 +58,15 @@ class RequestValidatorTest extends TestCase
 
         self::assertSame('label is too long', $error);
     }
+
+    public function testRejectsUnsafeTraversalFilePath(): void
+    {
+        $validator = new RequestValidator();
+
+        $error = $validator->validateImage([
+            'file_path' => '../catalog/product/a.jpg',
+        ]);
+
+        self::assertSame('file_path contains invalid or unsafe segments', $error);
+    }
 }

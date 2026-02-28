@@ -214,7 +214,7 @@ Follow these steps after uninstalling the module:
 
 This module uses a topic named **`nacento.gallery.process`** (publisher) and a consumer named **`nacento.gallery.consumer`** (listens to queue `nacento.gallery.process`).
 
-Current module configuration pins the consumer to **AMQP** (`connection="amqp"` in `etc/queue_consumer.xml`), so RabbitMQ (or another AMQP broker) is required unless you customize this module.
+Current module configuration uses Magento's default queue connection for the consumer, so backend selection (AMQP/DB) follows your Magento environment configuration.
 
 Common commands:
 
@@ -359,15 +359,7 @@ Submits a batch to Magento's message queue for background processing. The respon
   - RabbitMQ queue depth for `nacento.gallery.process`
   - consumer process health for `bin/magento queue:consumers:start nacento.gallery.consumer`
 
-## Recent Refactor Notes
 
-The latest internal refactor preserves the external payload but changes internal behavior:
-
-- Shared request/image normalization and validation before queueing.
-- Stable `operation_key` generation for async operations.
-- Module-local `magento_operation` status updater (no global override of Magento bulk operation services).
-- Retriable vs non-retriable failure classification in the queue consumer.
-- Per-SKU transactions and no-op skipping when ETag/metadata is unchanged.
 
 
 ---

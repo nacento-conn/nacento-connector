@@ -190,6 +190,79 @@ class BulkGalleryAsyncManagementTest extends TestCase
         self::assertSame('Failed to schedule bulk operations', $statuses[0]['error']);
     }
 
+    public function testMarksValidItemsRejectedWhenSchedulerReturnsFalse(): void
+    {
+        $bulkManagement = $this->createMock(BulkManagementInterface::class);
+        $opFactory = $this->createMock(OperationFactory::class);
+        $serializer = $this->createMock(SerializerInterface::class);
+        $userContext = $this->createMock(UserContextInterface::class);
+        $responseFactory = $this->createMock(AsyncResponseInterfaceFactory::class);
+        $itemStatusFactory = $this->createMock(ItemStatusInterfaceFactory::class);
+        $logger = $this->createMock(LoggerInterface::class);
+
+        $userContext->method('getUserId')->willReturn(7);
+        $opFactory->method('create')->willReturn(new \stdClass());
+        $serializer->method('serialize')->willReturn('{}');
+        $bulkManagement->method('scheduleBulk')->willReturn(false);
+
+        $response = $this->createMock(AsyncResponseInterface::class);
+        $response->method('setBulkUuid')->willReturnSelf();
+        $response->method('setRequestItems')->willReturnSelf();
+        $response->expects(self::once())->method('setErrors')->with(true)->willReturnSelf();
+        $responseFactory->method('create')->willReturn($response);
+
+        $statuses = [];
+        $itemStatusFactory->method('create')->willReturnCallback(function () use (&$statuses) {
+            $status = $this->createMock(ItemStatusInterface::class);
+            $capture = ['status' => null, 'error' => null];
+            $status->method('setId')->willReturnSelf();
+            $status->method('setDataHash')->willReturnSelf();
+            $status->method('setStatus')->willReturnCallback(function (string $value) use (&$capture, $status) {
+                $capture['status'] = $value;
+                return $status;
+            });
+            $status->method('setErrorMessage')->willReturnCallback(function (string $value) use (&$capture, $status) {
+                $capture['error'] = $value;
+                return $status;
+            });
+            $statuses[] = &$capture;
+            return $status;
+        });
+        $logger->expects(self::once())->method('error');
+
+        $service = new BulkGalleryAsyncManagement(
+            $bulkManagement,
+            $opFactory,
+            $serializer,
+            $userContext,
+            $responseFactory,
+            $itemStatusFactory,
+            $logger,
+            new ImagePayloadNormalizer($logger),
+            new RequestValidator(),
+            new OperationKeyFactory()
+        );
+
+        $request = new BulkRequest(['data' => [
+            'request_id' => 'req-3',
+            'items' => [
+                new BulkItem(['data' => [
+                    'sku' => 'SKU-1',
+                    'images' => [[
+                        'file_path' => '/a/b.jpg',
+                        'roles' => ['base'],
+                    ]],
+                ]]),
+            ],
+        ]]);
+
+        $service->submit($request);
+
+        self::assertCount(1, $statuses);
+        self::assertSame(ItemStatusInterface::STATUS_REJECTED, $statuses[0]['status']);
+        self::assertSame('Bulk scheduler did not accept operations', $statuses[0]['error']);
+    }
+
     public function testRejectsInvalidItemShapeAndStillSchedulesValidOnes(): void
     {
         $bulkManagement = $this->createMock(BulkManagementInterface::class);
@@ -338,5 +411,73 @@ class BulkGalleryAsyncManagementTest extends TestCase
         self::assertCount(1, $statuses);
         self::assertSame(ItemStatusInterface::STATUS_REJECTED, $statuses[0]['status']);
         self::assertSame('Missing images', $statuses[0]['error']);
+    }
+
+    public function testDoesNotForceAnonymousUserIdToZero(): void
+    {
+        $bulkManagement = $this->createMock(BulkManagementInterface::class);
+        $opFactory = $this->createMock(OperationFactory::class);
+        $serializer = $this->createMock(SerializerInterface::class);
+        $userContext = $this->createMock(UserContextInterface::class);
+        $responseFactory = $this->createMock(AsyncResponseInterfaceFactory::class);
+        $itemStatusFactory = $this->createMock(ItemStatusInterfaceFactory::class);
+        $logger = $this->createMock(LoggerInterface::class);
+
+        $userContext->method('getUserId')->willReturn(null);
+        $opFactory->method('create')->willReturn(new \stdClass());
+        $serializer->method('serialize')->willReturn('{}');
+
+        $bulkManagement->expects(self::once())
+            ->method('scheduleBulk')
+            ->with(
+                self::isType('string'),
+                self::callback(static fn(array $operations): bool => count($operations) === 1),
+                'Nacento gallery bulk',
+                null
+            )
+            ->willReturn(true);
+
+        $response = $this->createMock(AsyncResponseInterface::class);
+        $response->method('setBulkUuid')->willReturnSelf();
+        $response->method('setRequestItems')->willReturnSelf();
+        $response->expects(self::once())->method('setErrors')->with(false)->willReturnSelf();
+        $responseFactory->method('create')->willReturn($response);
+
+        $itemStatusFactory->method('create')->willReturnCallback(function () {
+            $status = $this->createMock(ItemStatusInterface::class);
+            $status->method('setId')->willReturnSelf();
+            $status->method('setDataHash')->willReturnSelf();
+            $status->method('setStatus')->willReturnSelf();
+            $status->method('setErrorMessage')->willReturnSelf();
+            return $status;
+        });
+
+        $service = new BulkGalleryAsyncManagement(
+            $bulkManagement,
+            $opFactory,
+            $serializer,
+            $userContext,
+            $responseFactory,
+            $itemStatusFactory,
+            $logger,
+            new ImagePayloadNormalizer($logger),
+            new RequestValidator(),
+            new OperationKeyFactory()
+        );
+
+        $request = new BulkRequest(['data' => [
+            'items' => [
+                new BulkItem(['data' => [
+                    'sku' => 'SKU-1',
+                    'images' => [[
+                        'file_path' => '/a/b.jpg',
+                        'roles' => ['base'],
+                    ]],
+                ]]),
+            ],
+        ]]);
+
+        $service->submit($request);
+        self::assertTrue(true);
     }
 }

@@ -37,6 +37,9 @@ class RequestValidator
         if (strlen($filePath) > self::MAX_FILE_PATH_LENGTH) {
             return 'file_path is too long';
         }
+        if (!$this->isSafeFilePath($filePath)) {
+            return 'file_path contains invalid or unsafe segments';
+        }
 
         $label = (string)($image['label'] ?? '');
         if (strlen($label) > self::MAX_LABEL_LENGTH) {
@@ -49,5 +52,27 @@ class RequestValidator
         }
 
         return null;
+    }
+
+    private function isSafeFilePath(string $filePath): bool
+    {
+        if (str_contains($filePath, "\0")) {
+            return false;
+        }
+
+        $normalized = str_replace('\\', '/', $filePath);
+        $normalized = preg_replace('#/+#', '/', $normalized) ?? '';
+        $normalized = trim($normalized, '/');
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach (explode('/', $normalized) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

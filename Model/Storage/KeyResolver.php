@@ -24,7 +24,7 @@ class KeyResolver
         $val = preg_replace('#^https?://[^/]+/#i', '', $val);
         $val = preg_replace('#^s3://[^/]+/#i', '', $val);
         // Remove query string / fragment if present.
-        $val = preg_replace('#[?#].*$#', '', (string)$val);
+        $val = preg_replace('#[\\?\\#].*$#', '', (string)$val);
         $val = ltrim((string)$val, '/');
 
         // Normalize when prefixed with pub/media or media.

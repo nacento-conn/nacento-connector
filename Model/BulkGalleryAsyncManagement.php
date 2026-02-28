@@ -66,7 +66,7 @@ class BulkGalleryAsyncManagement implements BulkGalleryAsyncManagementInterface
     public function submit(BulkRequestInterface $request): AsyncResponseInterface
     {
         $bulkUuid = $this->uuidV4();
-        $userId   = (int)($this->userContext->getUserId() ?? 0);
+        $userId   = $this->resolveUserId($this->userContext->getUserId());
         $desc     = 'Nacento gallery bulk';
         $requestId = $this->requestValidator->normalizeRequestId($request->getRequestId());
 
@@ -177,8 +177,15 @@ class BulkGalleryAsyncManagement implements BulkGalleryAsyncManagementInterface
         $scheduleError = null;
         try {
             if (!empty($operations)) {
-                $this->bulkManagement->scheduleBulk($bulkUuid, $operations, $desc, $userId);
-                $scheduleSucceeded = true;
+                $scheduleSucceeded = (bool)$this->bulkManagement->scheduleBulk($bulkUuid, $operations, $desc, $userId);
+                if (!$scheduleSucceeded) {
+                    $hasErrors = true;
+                    $scheduleError = 'Bulk scheduler did not accept operations';
+                    $this->logger->error('[NacentoConnector][BulkPlanner] Bulk scheduler rejected operations', [
+                        'bulk_uuid' => $bulkUuid,
+                        'request_id' => $requestId,
+                    ]);
+                }
             } else {
                 $this->logger->warning('[NacentoConnector][BulkPlanner] No operations were scheduled', [
                     'bulk_uuid' => $bulkUuid,
@@ -306,5 +313,23 @@ class BulkGalleryAsyncManagement implements BulkGalleryAsyncManagementInterface
         $d[6] = chr((ord($d[6]) & 0x0f) | 0x40); // set version to 0100 (v4)
         $d[8] = chr((ord($d[8]) & 0x3f) | 0x80); // set variant to 10xx (RFC 4122)
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($d), 4));
+    }
+
+    /**
+     * @param mixed $userId
+     */
+    private function resolveUserId(mixed $userId): ?int
+    {
+        if ($userId === null) {
+            return null;
+        }
+        if (is_int($userId)) {
+            return $userId > 0 ? $userId : null;
+        }
+        if (is_string($userId) && ctype_digit($userId)) {
+            $value = (int)$userId;
+            return $value > 0 ? $value : null;
+        }
+        return null;
     }
 }
