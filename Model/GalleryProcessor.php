@@ -71,6 +71,7 @@ class GalleryProcessor
                 'updated' => 0,
                 'skipped_noop' => 0,
                 'invalid' => 0,
+                'deduped_path_variants' => 0,
             ];
 
             $mediaDirectoryWriter = $this->filesystem->getDirectoryWrite(DirectoryList::MEDIA);
@@ -120,6 +121,12 @@ class GalleryProcessor
                 ]);
                 return true;
             }
+
+            $stats['deduped_path_variants'] = $this->galleryResourceModel->dedupePathVariantsForProduct(
+                (int)$product->getId(),
+                (int)$galleryAttribute->getAttributeId(),
+                array_keys($validImages)
+            );
 
             $existingImages = $this->galleryResourceModel->getExistingImages(
                 (int)$product->getId(),
@@ -233,6 +240,7 @@ class GalleryProcessor
                 'updated' => $stats['updated'],
                 'skipped_noop' => $stats['skipped_noop'],
                 'invalid' => $stats['invalid'],
+                'deduped_path_variants' => $stats['deduped_path_variants'],
                 'roles_assigned' => count($rolesToUpdate),
             ]);
         } catch (\Throwable $e) {

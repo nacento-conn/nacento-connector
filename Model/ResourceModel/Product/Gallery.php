@@ -123,6 +123,121 @@ class Gallery extends \Magento\Catalog\Model\ResourceModel\Product\Gallery
     }
 
     /**
+     * Removes duplicated media-gallery links for a product when the same image exists
+     * under canonical and legacy value variants (e.g. "/a/b.jpg" and "a/b.jpg").
+     *
+     * Keeps one value_id per canonical path and removes extra value rows/links for the product.
+     *
+     * @param int $productId
+     * @param int $attributeId
+     * @param array<int,string> $canonicalPaths
+     * @return int Number of per-product value rows removed.
+     */
+    public function dedupePathVariantsForProduct(int $productId, int $attributeId, array $canonicalPaths): int
+    {
+        if ($canonicalPaths === []) {
+            return 0;
+        }
+
+        $connection = $this->getConnection();
+        $linkTable = $this->getTable('catalog_product_entity_media_gallery_value_to_entity');
+        $valueTable = $this->getTable('catalog_product_entity_media_gallery_value');
+
+        $variantsToLookup = [];
+        foreach ($canonicalPaths as $canonicalPath) {
+            $canonicalPath = $this->normalizeGalleryPath((string)$canonicalPath);
+            if ($canonicalPath === '') {
+                continue;
+            }
+            $variantsToLookup[$canonicalPath] = true;
+            $legacyPath = ltrim($canonicalPath, '/');
+            if ($legacyPath !== '' && $legacyPath !== $canonicalPath) {
+                $variantsToLookup[$legacyPath] = true;
+            }
+        }
+
+        if ($variantsToLookup === []) {
+            return 0;
+        }
+
+        $select = $connection->select()
+            ->from(['main_table' => $this->getMainTable()], ['value_id', 'value'])
+            ->join(['link' => $linkTable], 'main_table.value_id = link.value_id', [])
+            ->where('link.entity_id = ?', $productId)
+            ->where('main_table.attribute_id = ?', $attributeId)
+            ->where('main_table.value IN (?)', array_keys($variantsToLookup));
+
+        $rows = $connection->fetchAll($select);
+        if ($rows === []) {
+            return 0;
+        }
+
+        $groupedByCanonical = [];
+        foreach ($rows as $row) {
+            $value = (string)($row['value'] ?? '');
+            $canonical = $this->normalizeGalleryPath($value);
+            if ($canonical === '') {
+                continue;
+            }
+            if (!isset($groupedByCanonical[$canonical])) {
+                $groupedByCanonical[$canonical] = [];
+            }
+            $groupedByCanonical[$canonical][] = [
+                'value_id' => (int)$row['value_id'],
+                'value' => $value,
+            ];
+        }
+
+        $valueIdsToRemove = [];
+        foreach ($groupedByCanonical as $canonical => $group) {
+            if (count($group) <= 1) {
+                continue;
+            }
+
+            $valueIdToKeep = 0;
+            foreach ($group as $candidate) {
+                if ((string)$candidate['value'] === $canonical) {
+                    $valueIdToKeep = (int)$candidate['value_id'];
+                    break;
+                }
+            }
+            if ($valueIdToKeep === 0) {
+                $valueIdToKeep = (int)$group[0]['value_id'];
+            }
+
+            foreach ($group as $candidate) {
+                $candidateValueId = (int)$candidate['value_id'];
+                if ($candidateValueId !== $valueIdToKeep) {
+                    $valueIdsToRemove[$candidateValueId] = true;
+                }
+            }
+        }
+
+        if ($valueIdsToRemove === []) {
+            return 0;
+        }
+
+        $removeIds = array_map('intval', array_keys($valueIdsToRemove));
+        $deletedRows = $connection->delete(
+            $valueTable,
+            [
+                'entity_id = ?' => $productId,
+                'value_id IN (?)' => $removeIds,
+            ]
+        );
+
+        $connection->delete(
+            $linkTable,
+            [
+                'entity_id = ?' => $productId,
+                'value_id IN (?)' => $removeIds,
+            ]
+        );
+
+        return (int)$deletedRows;
+    }
+
+    /**
      * Inserts a new record into the main gallery table (`catalog_product_entity_media_gallery`).
      * This record links the attribute ID to the image file path.
      *
@@ -266,5 +381,15 @@ class Gallery extends \Magento\Catalog\Model\ResourceModel\Product\Gallery
     public function rollBack(): void
     {
         $this->getConnection()->rollBack();
+    }
+
+    private function normalizeGalleryPath(string $filePath): string
+    {
+        $trimmed = trim($filePath);
+        $trimmed = str_replace('\\', '/', $trimmed);
+        $trimmed = preg_replace('#/+#', '/', $trimmed) ?? '';
+        $trimmed = trim($trimmed, '/');
+
+        return $trimmed === '' ? '' : '/' . $trimmed;
     }
 }
