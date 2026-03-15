@@ -14,6 +14,7 @@ use Magento\AsynchronousOperations\Api\Data\AsyncResponseInterface;
 use Magento\AsynchronousOperations\Api\Data\AsyncResponseInterfaceFactory;
 use Magento\AsynchronousOperations\Api\Data\ItemStatusInterface;
 use Magento\AsynchronousOperations\Api\Data\ItemStatusInterfaceFactory;
+use Magento\AsynchronousOperations\Api\SaveMultipleOperationsInterface;
 
 use Magento\AsynchronousOperations\Model\OperationFactory;
 use Magento\Framework\DataObject;
@@ -54,7 +55,8 @@ class BulkGalleryAsyncManagement implements BulkGalleryAsyncManagementInterface
         private readonly LoggerInterface $logger,
         private readonly ImagePayloadNormalizer $imagePayloadNormalizer,
         private readonly RequestValidator $requestValidator,
-        private readonly OperationKeyFactory $operationKeyFactory
+        private readonly OperationKeyFactory $operationKeyFactory,
+        private readonly SaveMultipleOperationsInterface $saveMultipleOperations
     ) {}
 
     /**
@@ -185,6 +187,11 @@ class BulkGalleryAsyncManagement implements BulkGalleryAsyncManagementInterface
                         'bulk_uuid' => $bulkUuid,
                         'request_id' => $requestId,
                     ]);
+                } else {
+                    // Persist individual operation rows so the Bulk Actions Log reflects real status.
+                    // scheduleBulk only saves the bulk summary; saveMultipleOperations inserts
+                    // rows into magento_operation (mirrors what MassSchedule does for async.* topics).
+                    $this->saveMultipleOperations->execute($operations);
                 }
             } else {
                 $this->logger->warning('[NacentoConnector][BulkPlanner] No operations were scheduled', [
