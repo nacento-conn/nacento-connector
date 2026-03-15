@@ -383,6 +383,87 @@ class Gallery extends \Magento\Catalog\Model\ResourceModel\Product\Gallery
         $this->getConnection()->rollBack();
     }
 
+    /**
+     * Removes all gallery entries for a product whose file path is NOT in $keepPaths.
+     * This implements "replace" semantics: after syncing the current payload, orphaned
+     * entries (old images no longer in Akeneo) are deleted from the gallery tables.
+     *
+     * Both the canonical (/a/b.jpg) and legacy (a/b.jpg) forms of each keep-path are
+     * accepted, so entries stored under either variant are preserved.
+     *
+     * @param int $productId
+     * @param int $attributeId
+     * @param array<int,string> $keepPaths  All file paths present in the incoming payload
+     *                                       (canonical form, with leading slash).
+     * @return int Number of per-product value rows deleted.
+     */
+    public function purgeOrphanedEntries(int $productId, int $attributeId, array $keepPaths): int
+    {
+        // Safety guard: never wipe everything if the payload was empty.
+        if (empty($keepPaths)) {
+            return 0;
+        }
+
+        $connection = $this->getConnection();
+        $linkTable  = $this->getTable('catalog_product_entity_media_gallery_value_to_entity');
+        $valueTable = $this->getTable('catalog_product_entity_media_gallery_value');
+
+        // Build a lookup set that accepts both /a/b.jpg and a/b.jpg for every keep-path.
+        $keepSet = [];
+        foreach ($keepPaths as $path) {
+            $canonical  = $this->normalizeGalleryPath((string)$path);
+            $legacy     = ltrim($canonical, '/');
+            if ($canonical !== '') {
+                $keepSet[$canonical] = true;
+            }
+            if ($legacy !== '') {
+                $keepSet[$legacy] = true;
+            }
+        }
+
+        // Fetch all value_ids currently linked to this product.
+        $select = $connection->select()
+            ->from(['main_table' => $this->getMainTable()], ['value_id', 'value'])
+            ->join(['link' => $linkTable], 'main_table.value_id = link.value_id', [])
+            ->where('link.entity_id = ?', $productId)
+            ->where('main_table.attribute_id = ?', $attributeId);
+
+        $rows = $connection->fetchAll($select);
+        if (empty($rows)) {
+            return 0;
+        }
+
+        $valueIdsToRemove = [];
+        foreach ($rows as $row) {
+            $path = (string)($row['value'] ?? '');
+            if (!isset($keepSet[$path])) {
+                $valueIdsToRemove[] = (int)$row['value_id'];
+            }
+        }
+
+        if (empty($valueIdsToRemove)) {
+            return 0;
+        }
+
+        $deleted = (int)$connection->delete(
+            $valueTable,
+            [
+                'entity_id = ?'    => $productId,
+                'value_id IN (?)'  => $valueIdsToRemove,
+            ]
+        );
+
+        $connection->delete(
+            $linkTable,
+            [
+                'entity_id = ?'    => $productId,
+                'value_id IN (?)'  => $valueIdsToRemove,
+            ]
+        );
+
+        return $deleted;
+    }
+
     private function normalizeGalleryPath(string $filePath): string
     {
         $trimmed = trim($filePath);

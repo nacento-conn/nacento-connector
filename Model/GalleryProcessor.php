@@ -72,6 +72,7 @@ class GalleryProcessor
                 'skipped_noop' => 0,
                 'invalid' => 0,
                 'deduped_path_variants' => 0,
+                'purged' => 0,
             ];
 
             $mediaDirectoryWriter = $this->filesystem->getDirectoryWrite(DirectoryList::MEDIA);
@@ -82,6 +83,16 @@ class GalleryProcessor
             $norm = static function ($e) {
                 return $e !== null ? trim((string)$e, '\"') : null;
             };
+
+            // Collect ALL paths from the payload before validation.
+            // Used later to purge orphaned gallery entries (replace semantics).
+            $allPayloadPaths = [];
+            foreach ($images as $imageEntry) {
+                $fp = $this->normalizeGalleryValuePath($imageEntry->getFilePath() ?? '');
+                if ($fp !== '') {
+                    $allPayloadPaths[] = $fp;
+                }
+            }
 
             $validImages = [];
             $filePaths = [];
@@ -219,6 +230,26 @@ class GalleryProcessor
                     ]);
                 }
 
+                // Purge gallery entries that are no longer in the incoming payload.
+                // This implements replace (not append) semantics: old images from previous
+                // syncs that are no longer present in Akeneo are removed from the gallery.
+                // We use $allPayloadPaths (pre-validation) so that an image temporarily
+                // absent from S3/MinIO is not accidentally deleted from the gallery.
+                if (!empty($allPayloadPaths)) {
+                    $purged = $this->galleryResourceModel->purgeOrphanedEntries(
+                        (int)$product->getId(),
+                        (int)$galleryAttribute->getAttributeId(),
+                        $allPayloadPaths
+                    );
+                    if ($purged > 0) {
+                        $this->logger->info('[NacentoConnector][GalleryProcessor] Purged orphaned gallery entries', [
+                            'sku'    => $sku,
+                            'purged' => $purged,
+                        ]);
+                        $stats['purged'] = $purged;
+                    }
+                }
+
                 $clearRoles = [];
                 foreach ($this->managedRoleSetProvider->getManagedRoles() as $roleCode) {
                     $clearRoles[$roleCode] = 'no_selection';
@@ -241,6 +272,7 @@ class GalleryProcessor
                 'skipped_noop' => $stats['skipped_noop'],
                 'invalid' => $stats['invalid'],
                 'deduped_path_variants' => $stats['deduped_path_variants'],
+                'purged' => $stats['purged'],
                 'roles_assigned' => count($rolesToUpdate),
             ]);
         } catch (\Throwable $e) {
